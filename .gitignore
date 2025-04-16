@@ -15,11 +15,11 @@
 *.core
 
 # CMake build directory
-/build/
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
+# /build/
+# CMakeFiles/
+# CMakeCache.txt
+# cmake_install.cmake
+# Makefile
 
 # Logs and temporary files
 *.log

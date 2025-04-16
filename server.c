@@ -8,26 +8,9 @@
 #include <sys/types.h>
 #include <stdbool.h>
 #include <stdlib.h>
-
-const char *CRLF = "\r\n"; // carriage return line feed
-const char *SP   = " ";
-
-typedef struct {
-    const char *data;
-    size_t      len;
-} string;
-
-bool strings_equal(string *l, string *r) {
-    size_t min_len = l->len < r->len ? l->len : r->len;
-    return memcmp(l->data, r->data, min_len) == 0;
-}
-
-string string_from_cstr(const char *str) {
-    string s;
-    s.len  = strlen(str);
-    s.data = str;
-    return s;
-}
+#include "stringops.h"
+#define CRLF  "\r\n" // carriage return line feed
+#define SP    " "
 
 typedef struct {
     string method;
@@ -35,103 +18,83 @@ typedef struct {
     string version;
 } http_req_line;
 
-typedef enum {
+typedef enum http_status {
     HTTP_RES_OK                  = 200,
     HTTP_RES_INTERNAL_SERVER_ERR = 500,
-    HTTP_RES_BAD_REQUEST         = 400
-} http_result;
+    HTTP_RES_BAD_REQUEST         = 400,
+    HTTP_RES_NOT_FOUND           = 404
+} http_status;
 
+// typedef struct{
+//     const char * version;
+//     http_status status;
+// }http_resp_status_line;
+
+
+const char * http_status_to_string(http_status status){
+    switch(status){
+        case HTTP_RES_OK:
+            return "OK";
+        case HTTP_RES_BAD_REQUEST:
+            return "Bad Request";
+        case HTTP_RES_INTERNAL_SERVER_ERR:
+            return "Internal Servor Error";
+        case HTTP_RES_NOT_FOUND:
+            return "Not Found";
+        default:
+            return "Unknown";
+    }
+}
 http_req_line http_req_line_init() {
     http_req_line line;
     memset(&line, 0, sizeof(line));
     return line;
 }
+string http_response_generate(char* buf,size_t buf_len,http_status status,size_t body_len){
+    int n=0;
+    string response;
+    response.len=0;
+    memset(buf,0,buf_len);
+    response.len+=sprintf(buf, "HTTP/1.0 %d %s" CRLF, status, http_status_to_string(status));
+    response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
 
-typedef struct {
-    const char *start;
-    size_t      len;
-} string_view;
-
-typedef struct {
-    string_view *splits;
-    size_t       count;
-    size_t       capacity;
-} string_splits;
-
-static string_splits split_string(const char *str, char split_by) {
-    size_t len = strlen(str);
-    string_splits result;
-    result.count    = 0;
-    result.capacity = 8;
-    result.splits   = calloc(result.capacity, sizeof(string_view));
-    if (!result.splits) {
-        perror("calloc");
-        exit(EXIT_FAILURE);
-    }
-
-    const char *token_start = str;
-    for (size_t i = 0; i < len; ++i) {
-        if (str[i] == split_by) {
-            if (result.count >= result.capacity) {
-                result.capacity *= 2;
-                string_view *tmp = realloc(result.splits, result.capacity * sizeof(string_view));
-                if (!tmp) {
-                    perror("realloc");
-                    free(result.splits);
-                    exit(EXIT_FAILURE);
-                }
-                result.splits = tmp;
-            }
-            result.splits[result.count].start = token_start;
-            result.splits[result.count].len   = &str[i] - token_start;
-            result.count++;
-            token_start = &str[i + 1];
-        }
-    }
-
-    // Add final token
-    if (token_start <= str + len) {
-        if (result.count >= result.capacity) {
-            result.capacity *= 2;
-            string_view *tmp = realloc(result.splits, result.capacity * sizeof(string_view));
-            if (!tmp) {
-                perror("realloc");
-                free(result.splits);
-                exit(EXIT_FAILURE);
-            }
-            result.splits = tmp;
-        }
-        result.splits[result.count].start = token_start;
-        result.splits[result.count].len   = str + len - token_start;
-        result.count++;
-    }
-
-    return result;
+    response.len += sprintf(buf+response.len,"Content-Length: %zu" CRLF ,body_len);
+    response.len+=sprintf(buf+response.len,CRLF);
+    // response.len=n;
+    response.data=buf;
+    return response;
 }
-
-static void free_splits(string_splits *splits) {
-    if (splits && splits->splits) {
-        free(splits->splits);
-        splits->splits   = NULL;
-        splits->count    = 0;
-        splits->capacity = 0;
+bool http_send_response(int socket,string header,string body){
+    ssize_t n=send(socket,header.data ,header.len,MSG_MORE); ///MSG_MORE to prevent under sized packets
+    if(n<0){
+        perror("send()");
+        return false;
     }
+    if(n==0){
+        fprintf(stderr,"send() returned 0");
+    }
+    n=send(socket,body.data,body.len,0);
+    return true;
+
 }
 
 int handle_client(int client_socket) {
     ssize_t n = 0;
     char buf[1024];
-    const char *hello =
-        "HTTP/1.0 200 OK\r\n"
-        "Content-Type: text/html\r\n"
-        "\r\n"
-        "<span style=\"color: red; font-weight: bold;\">Hello Harsh Panchal</span>";
-    const char *bye =
-        "HTTP/1.0 200 OK\r\n"
-        "Content-Type: text/html\r\n"
-        "\r\n"
-        "<span style=\"color: blue; font-weight: bold;\">Bye Harsh Panchal</span>";
-
+    string hello = string_from_cstr(
+        "<span style=\"\n"
+        "    color: red;\n"
+        "    font-weight: bold;\n"
+        "\">Hello Harsh Panchal</span>"
+    );
+    
+    string bye = string_from_cstr(
+        "<span style=\"\n"
+        "    color: blue;\n"
+        "    font-weight: bold;\n"
+        "\">Bye Harsh Panchal</span>"
+    );
+    
     for (;;) {
         memset(buf, 0, sizeof(buf));
         n = read(client_socket, buf, sizeof(buf) - 1);
@@ -182,13 +145,13 @@ int handle_client(int client_socket) {
         string route_bye   = string_from_cstr("/bye");
 
         if (strings_equal(&req_line.uri, &route_hello)) {
-            (void)write(client_socket, hello, strlen(hello));
+            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,hello.len),hello);
         }
         else if (strings_equal(&req_line.uri, &route_bye)) {
-            (void)write(client_socket, bye, strlen(bye));
+            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,bye.len),bye);
         }
         else {
-            (void)write(client_socket, hello, strlen(hello));
+            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,hello.len),hello);
         }
 
         close(client_socket);
@@ -198,13 +161,16 @@ int handle_client(int client_socket) {
     return 0;
 }
 
+
 int main(void) {
     int rc = 0;
     struct sockaddr_in bind_addr;
+    struct sockaddr_in client_sock;
     int tcp_socket = 0;
     int ret = 0;
     int client_socket = 0;
     int enabled = 1;
+    socklen_t client_len = sizeof(client_sock);
 
     memset(&bind_addr, 0, sizeof(bind_addr));
     tcp_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -217,9 +183,10 @@ int main(void) {
     (void)setsockopt(tcp_socket, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));/// reuse port
     bind_addr.sin_port = htons(6970); /// little endian to big endian
     bind_addr.sin_family = AF_INET;
-    bind_addr.sin_addr.s_addr = INADDR_ANY; /// on 0.0.0.0 or use inet_addr()
 
-    rc = bind(tcp_socket, (const struct sockaddr *)&bind_addr, sizeof(bind_addr))
+    inet_pton(AF_INET,"0.0.0.0",&bind_addr.sin_addr); /// on 0.0.0.0 or use inet_pton()
+
+    rc = bind(tcp_socket, (const struct sockaddr *)&bind_addr, sizeof(bind_addr));
     //  note typecasting of pointer to sockaddr and not sockaddr_in
     if (rc < 0) {
         perror("bind()");
@@ -238,12 +205,14 @@ int main(void) {
 
     for (;;) {
         printf("Waiting for connections...\n");
-        client_socket = accept(tcp_socket, NULL, NULL); /// pop front from queue
+        client_socket = accept(tcp_socket,(struct sockaddr *)&client_sock,&client_len); /// pop front from queue
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(client_sock.sin_addr), client_ip, INET_ADDRSTRLEN);
+        printf("Got connection from %s:%d\n", client_ip, ntohs(client_sock.sin_port));
         if (client_socket < 0) {
             perror("accept()");
             continue;
         }
-        printf("Got a connection\n");
         rc = handle_client(client_socket);
     }
 
