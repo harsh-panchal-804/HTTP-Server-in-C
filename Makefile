@@ -1,7 +1,7 @@
 CFLAGS=-Wall -Wextra -pedantic
 COMPILER=gcc
-server:server.c
-	${COMPILER} ${CFLAGS} $^ -o $@ 
+server:server.c stringops.h fs.h
+	${COMPILER} ${CFLAGS} $< -o $@ 
 
 .PHONY:clean
 

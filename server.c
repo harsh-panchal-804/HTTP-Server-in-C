@@ -8,9 +8,14 @@
 #include <sys/types.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
 #include "stringops.h"
+#include <fcntl.h>
+#include "fs.h"
 #define CRLF  "\r\n" // carriage return line feed
 #define SP    " "
+const string_view WEB_ROOT =STRING_VIEW_FROM_LITERAL("./www/");
 
 typedef struct {
     string method;
@@ -30,7 +35,12 @@ typedef enum http_status {
 //     http_status status;
 // }http_resp_status_line;
 
-
+static inline string string_from_view(string_view v) {
+    return (string){ .data = v.start, .len = v.len };
+}
+static inline string_view view_from_string(string s) {
+    return (string_view){ .start = s.data, .len = s.len };
+}
 const char * http_status_to_string(http_status status){
     switch(status){
         case HTTP_RES_OK:
@@ -77,6 +87,71 @@ bool http_send_response(int socket,string header,string body){
     return true;
 
 }
+string_view err_404 =STRING_VIEW_FROM_LITERAL("<p>Error 404 </p>");
+bool http_serve_file(int socket,string filename){
+    char buf[128];
+    string hd;
+    string_view header;
+    char filename_buf[PATH_MAX];
+    ssize_t result=0;
+    ssize_t sent=0;
+    bool return_value=true;
+    off_t sendfile_offset=0;
+    int in_fd=-1;
+    
+    memset(filename_buf,0,sizeof(filename_buf));
+    memcpy(filename_buf,WEB_ROOT.start,WEB_ROOT.len);
+    memcpy(filename_buf +WEB_ROOT.len -1,filename.data,filename.len);
+    fs_metadata file_metadata=fs_get_metadata(string_from_cstr(filename_buf));
+    if(!file_metadata.exists){
+        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len),string_from_view(err_404));
+        return false;
+    }
+    hd=http_response_generate(buf,sizeof(buf),HTTP_RES_OK,file_metadata.size);
+    header=view_from_string(hd);
+    // file=fopen(filename_buf,"rb");
+    // if(!file){
+    //     printf("Couldnt open file %s",filename_buf);
+    //     (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len),err_404);
+    //     return false;
+    // }
+    // char * file_buf= (char *) malloc(file_metadata.size);
+    // if(!file_buf){
+    //     (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len),err_404);
+    //     return false;
+    // }
+    // fread(file_buf,1,file_metadata.size,file);
+    ssize_t n=send(socket,header.start ,header.len,MSG_MORE); ///MSG_MORE to prevent under sized packets
+    if(n<0){
+        perror("send()");
+        return_value=false;
+        goto cleanup;
+    }
+    if(n==0){
+        fprintf(stderr,"send() returned 0");
+    }
+    in_fd=open(filename_buf,O_RDONLY);
+    if(in_fd<0){
+        return_value=false;
+        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len),string_from_view(err_404));
+        goto cleanup;
+    }
+    while(sent < file_metadata.size){
+        result=sendfile(socket,in_fd,&sendfile_offset,file_metadata.size);
+        if(result <0){
+            printf("sendfile() failed for %s",filename_buf);
+            return_value=false;
+            (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len),string_from_view(err_404));
+            goto cleanup;
+        }
+        sent += result;
+    }
+cleanup:
+    if(in_fd>0){
+        close(in_fd);
+    }
+    return return_value;
+}
 
 int handle_client(int client_socket) {
     ssize_t n = 0;
@@ -108,7 +183,6 @@ int handle_client(int client_socket) {
         }
         printf("Requests:\n%s", buf);
 
-       
         buf[n] = '\0';
         char *eol = strstr(buf, CRLF);
         if (!eol) {
@@ -122,7 +196,6 @@ int handle_client(int client_socket) {
         memcpy(line, buf, L);
         line[L] = '\0';
 
-       
         string_splits comps = split_string(line, ' ');
         if (comps.count != 3) {
             fprintf(stderr, "Invalid request line (got %zu parts)\n", comps.count);
@@ -131,7 +204,6 @@ int handle_client(int client_socket) {
             return -1;
         }
 
-      
         http_req_line req_line = http_req_line_init();
         req_line.method.data  = comps.splits[0].start;
         req_line.method.len   = comps.splits[0].len;
@@ -143,15 +215,34 @@ int handle_client(int client_socket) {
         /// routing logic
         string route_hello = string_from_cstr("/hello");
         string route_bye   = string_from_cstr("/bye");
+        string route_index = string_from_cstr("/index");
+        string route_root = { .data = "/", .len = 2 };
+
 
         if (strings_equal(&req_line.uri, &route_hello)) {
-            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,hello.len),hello);
+            http_send_response(
+                client_socket,
+                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, hello.len),
+                hello
+            );
         }
         else if (strings_equal(&req_line.uri, &route_bye)) {
-            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,bye.len),bye);
+            http_send_response(
+                client_socket,
+                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, bye.len),
+                bye
+            );
+        }
+        else if (strings_equal(&req_line.uri, &route_index)
+              || strings_equal(&req_line.uri, &route_root)) {
+            if (!http_serve_file(client_socket, string_from_cstr("index.html"))) {
+                return -1;
+            }
         }
         else {
-            http_send_response(client_socket,http_response_generate(buf,sizeof(buf),HTTP_RES_OK,hello.len),hello);
+            if (!http_serve_file(client_socket, req_line.uri)) {
+                return -1;
+            }
         }
 
         close(client_socket);
@@ -162,6 +253,7 @@ int handle_client(int client_socket) {
 }
 
 
+
 int main(void) {
     int rc = 0;
     struct sockaddr_in bind_addr;
@@ -170,6 +262,14 @@ int main(void) {
     int ret = 0;
     int client_socket = 0;
     int enabled = 1;
+    const char * web_root="./www";
+    fs_metadata web_root_meta= fs_get_metadata(string_from_view(WEB_ROOT));
+    if(!web_root_meta.exists){
+        ///rwxr -xr-x
+        mkdir(web_root,S_IEXEC | S_IWRITE |S_IREAD |S_IRGRP | S_IXGRP | S_IROTH |S_IXOTH);
+    }
+
+
     socklen_t client_len = sizeof(client_sock);
 
     memset(&bind_addr, 0, sizeof(bind_addr));

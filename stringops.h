@@ -1,3 +1,7 @@
+#ifndef STRINGOPS_H
+#define STRINGOPS_H
+
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,10 +13,13 @@ typedef struct {
     size_t      len;
 } string;
 
-bool strings_equal(string *l, string *r) {
-    size_t min_len = l->len < r->len ? l->len : r->len;
-    return memcmp(l->data, r->data, min_len) == 0;
+static inline bool strings_equal(const string *l, const string *r) {
+    if (l->len != r->len) return false;
+    return memcmp(l->data, r->data, l->len) == 0;
 }
+
+
+
 
 string string_from_cstr(const char *str) {
     string s;
@@ -91,3 +98,12 @@ static void free_splits(string_splits *splits) {
         splits->capacity = 0;
     }
 }
+// static inline bool views_equal(string_view l, string_view r) {
+//     if (l.len != r.len) return false;
+//     return memcmp(l.start, r.start, l.len) == 0;
+// }
+
+
+#define STRING_VIEW_FROM_LITERAL(str) \
+    (string_view) {.start=str,.len=sizeof(str)}
+#endif /* STRINGOPS_H */
