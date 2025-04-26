@@ -21,6 +21,28 @@ Watch the demo (It takes some time to load or go to the demo_video folder ) ->
 
 ---
 
+## References
+
+- **Beej's Guide to Network Programming**
+[Beej's Guide to Network Programming (Official Site)](https://beej.us/guide/bgnet/pdf/bgnet_a4_c_1.pdf)
+- **Arch Linux Networking Man Pages**
+[socket(7) - Sockets API Overview](https://man.archlinux.org/man/socket.7.en)
+[tcp(7) - TCP Protocol](https://man.archlinux.org/man/tcp.7.en)
+[udp(7) - UDP Protocol](https://man.archlinux.org/man/udp.7.en)
+[epoll(7) - epoll API](https://man.archlinux.org/man/epoll.7.en)
+[select(2) - I/O Multiplexing](https://man.archlinux.org/man/select.2.en)
+[poll(2) - I/O Multiplexing](https://man.archlinux.org/man/poll.2.en)
+[accept(2) - Accept Connections](https://man.archlinux.org/man/accept.2.en)
+[bind(2) - Bind Socket](https://man.archlinux.org/man/bind.2.en)
+[connect(2) - Connect Socket](https://man.archlinux.org/man/connect.2.en)
+[listen(2) - Listen for Connections](https://man.archlinux.org/man/listen.2.en)
+[send(2) - Send Data](https://man.archlinux.org/man/send.2.en)
+[recv(2) - Receive Data](https://man.archlinux.org/man/recv.2.en)
+[shutdown(2) - Shutdown Connection](https://man.archlinux.org/man/shutdown.2.en)
+- **Book Reference**
+Douglas Comer - Internetworking with TCP/IP
+<img src="./demo_video/book.jpeg">
+
 ## Installation
 
 ### Prerequisites
