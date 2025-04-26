@@ -60,16 +60,27 @@ http_req_line http_req_line_init() {
     memset(&line, 0, sizeof(line));
     return line;
 }
-string http_response_generate(char* buf,size_t buf_len,http_status status,size_t body_len){
+const char * get_mime_type(const char * path){
+    const char  * dot=strrchr(path,'.');
+    if(!dot)return "application/octet-stream";
+    if (strcmp(dot, ".html") == 0) return "text/html";
+    if (strcmp(dot, ".css")  == 0) return "text/css";
+    if (strcmp(dot, ".js")   == 0) return "application/javascript";
+    if (strcmp(dot, ".png")  == 0) return "image/png";
+    if(strcmp(dot,".svg")==0)return "image/svg+xml";
+    if (strcmp(dot, ".jpg")  == 0 || strcmp(dot, ".jpeg") == 0) return "image/jpeg";
+    return "application/octet-stream";
+}
+string http_response_generate(char* buf,size_t buf_len,http_status status,size_t body_len,const char *content_type){
     int n=0;
     string response;
     response.len=0;
     memset(buf,0,buf_len);
     response.len+=sprintf(buf, "HTTP/1.0 %d %s" CRLF, status, http_status_to_string(status));
-    response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
-
+    // response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
+    response.len += sprintf(buf+response.len,"Content-Type: %s" CRLF, content_type);
     response.len += sprintf(buf+response.len,"Content-Length: %zu" CRLF ,body_len);
-    response.len+=sprintf(buf+response.len,CRLF);
+    response.len += sprintf(buf+response.len,CRLF);
     // response.len=n;
     response.data=buf;
     return response;
@@ -85,7 +96,6 @@ bool http_send_response(int socket,string header,string body){
     }
     n=send(socket,body.data,body.len,0);
     return true;
-
 }
 string_view err_404 =STRING_VIEW_FROM_LITERAL("<p>Error 404 </p>");
 bool http_serve_file(int socket,string filename){
@@ -102,12 +112,13 @@ bool http_serve_file(int socket,string filename){
     memset(filename_buf,0,sizeof(filename_buf));
     memcpy(filename_buf,WEB_ROOT.start,WEB_ROOT.len);
     memcpy(filename_buf +WEB_ROOT.len -1,filename.data,filename.len);
+    const char * mime_type=get_mime_type(filename_buf);
     fs_metadata file_metadata=fs_get_metadata(string_from_cstr(filename_buf));
     if(!file_metadata.exists){
-        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len),string_from_view(err_404));
+        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len,"text/html"),string_from_view(err_404));
         return false;
     }
-    hd=http_response_generate(buf,sizeof(buf),HTTP_RES_OK,file_metadata.size);
+    hd=http_response_generate(buf,sizeof(buf),HTTP_RES_OK,file_metadata.size,mime_type);
     header=view_from_string(hd);
     // file=fopen(filename_buf,"rb");
     // if(!file){
@@ -133,7 +144,7 @@ bool http_serve_file(int socket,string filename){
     in_fd=open(filename_buf,O_RDONLY);
     if(in_fd<0){
         return_value=false;
-        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len),string_from_view(err_404));
+        (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len,"text/html"),string_from_view(err_404));
         goto cleanup;
     }
     while(sent < file_metadata.size){
@@ -141,7 +152,7 @@ bool http_serve_file(int socket,string filename){
         if(result <0){
             printf("sendfile() failed for %s",filename_buf);
             return_value=false;
-            (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len),string_from_view(err_404));
+            (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len,"text/html"),string_from_view(err_404));
             goto cleanup;
         }
         sent += result;
@@ -216,20 +227,24 @@ int handle_client(int client_socket) {
         string route_hello = string_from_cstr("/hello");
         string route_bye   = string_from_cstr("/bye");
         string route_index = string_from_cstr("/index");
-        string route_root = { .data = "/", .len = 2 };
+        string route_root = string_from_cstr("/");
+
+        const char * mime_type=get_mime_type(req_line.uri.data);
 
 
         if (strings_equal(&req_line.uri, &route_hello)) {
             http_send_response(
                 client_socket,
-                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, hello.len),
+                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, hello.len,"text/html"),
                 hello
             );
+            //// send mime type as text/html as without it will fallback to application/octet-stream
+            //// and prompt browser to download file
         }
         else if (strings_equal(&req_line.uri, &route_bye)) {
             http_send_response(
                 client_socket,
-                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, bye.len),
+                http_response_generate(buf, sizeof(buf), HTTP_RES_OK, bye.len,"text/html"),
                 bye
             );
         }
@@ -243,6 +258,7 @@ int handle_client(int client_socket) {
             if (!http_serve_file(client_socket, req_line.uri)) {
                 return -1;
             }
+            /// for react router handling serve index.html if serve file above fails
         }
 
         close(client_socket);
@@ -268,8 +284,6 @@ int main(void) {
         ///rwxr -xr-x
         mkdir(web_root,S_IEXEC | S_IWRITE |S_IREAD |S_IRGRP | S_IXGRP | S_IROTH |S_IXOTH);
     }
-
-
     socklen_t client_len = sizeof(client_sock);
 
     memset(&bind_addr, 0, sizeof(bind_addr));
