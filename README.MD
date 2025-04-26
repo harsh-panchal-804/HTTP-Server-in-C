@@ -6,7 +6,7 @@ A lightweight, multithreaded HTTP server implemented in C using POSIX sockets an
 ---
 
 ## Demo
-Watch the demo ->
+Watch the demo (It takes some time to load or go to the demo_video folder ) ->
 ![Demo GIF](demo_video/server.gif)
 
 
