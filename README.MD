@@ -16,7 +16,7 @@ Watch the demo (It takes some time to load or go to the demo_video folder ) ->
 - **Multithreaded**: Uses pthreads to process multiple client requests concurrently.
 - **Static File Serving**: Delivers HTML, JPEG, CSS, JavaScript and other static files from a specified directory.
 - **URI-Based Routing**: Maps incoming HTTP requests to files or handler functions based on the URI.
-- **HTTP/1.1 Support**: Implements the GET and HEAD methods, responding to invalid requests with proper error messages.
+- **HTTP/1.0 Support**: Implements the GET and HEAD methods, responding to invalid requests with proper error messages.
 - **Linux Only**: Developed and tested on Linux systems.
 
 ---
