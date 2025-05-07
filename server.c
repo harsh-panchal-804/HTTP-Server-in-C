@@ -13,9 +13,11 @@
 #include "stringops.h"
 #include <fcntl.h>
 #include "fs.h"
+#include <signal.h>
 #define CRLF  "\r\n" // carriage return line feed
 #define SP    " "
 const string_view WEB_ROOT =STRING_VIEW_FROM_LITERAL("./www/");
+
 
 typedef struct {
     string method;
@@ -78,6 +80,7 @@ string http_response_generate(char* buf,size_t buf_len,http_status status,size_t
     memset(buf,0,buf_len);
     response.len+=sprintf(buf, "HTTP/1.0 %d %s" CRLF, status, http_status_to_string(status));
     // response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
+    response.len+=sprintf(buf+response.len,"Access-Control-Allow-Origin: *" CRLF);
     response.len += sprintf(buf+response.len,"Content-Type: %s" CRLF, content_type);
     response.len += sprintf(buf+response.len,"Content-Length: %zu" CRLF ,body_len);
     response.len += sprintf(buf+response.len,CRLF);
@@ -147,15 +150,29 @@ bool http_serve_file(int socket,string filename){
         (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_NOT_FOUND,err_404.len,"text/html"),string_from_view(err_404));
         goto cleanup;
     }
-    while(sent < file_metadata.size){
-        result=sendfile(socket,in_fd,&sendfile_offset,file_metadata.size);
-        if(result <0){
-            printf("sendfile() failed for %s",filename_buf);
+    // while(sent < file_metadata.size){
+    //     result=sendfile(socket,in_fd,&sendfile_offset,file_metadata.size);
+    //     if(result <0){
+    //         printf("sendfile() failed for %s",filename_buf);
+    //         return_value=false;
+    //         (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len,"text/html"),string_from_view(err_404));
+    //         goto cleanup;
+    //     }
+    //     sent += result;
+    // }
+    size_t remaining =file_metadata.size;
+    while(remaining>0){
+        ssize_t bytes_sent=sendfile(socket,in_fd,&sendfile_offset,remaining);
+        if(bytes_sent<0){
+            perror("sendfile()");
             return_value=false;
-            (void)http_send_response(socket,http_response_generate(buf,sizeof(buf),HTTP_RES_INTERNAL_SERVER_ERR,err_404.len,"text/html"),string_from_view(err_404));
-            goto cleanup;
+            break;
         }
-        sent += result;
+        if(bytes_sent==0){
+            fprintf(stderr,"socket closed 0 bytes send");
+            break;
+        }
+        remaining-=bytes_sent;
     }
 cleanup:
     if(in_fd>0){
@@ -166,7 +183,7 @@ cleanup:
 
 int handle_client(int client_socket) {
     ssize_t n = 0;
-    char buf[1024];
+    char buf[8192];
     string hello = string_from_cstr(
         "<span style=\"\n"
         "    color: red;\n"
@@ -202,7 +219,7 @@ int handle_client(int client_socket) {
             return -1;
         }
         size_t L = eol - buf;
-        char line[1024];
+        char line[8192];
         if (L >= sizeof(line)) L = sizeof(line) - 1;
         memcpy(line, buf, L);
         line[L] = '\0';
@@ -271,6 +288,7 @@ int handle_client(int client_socket) {
 
 
 int main(void) {
+    signal(SIGPIPE,SIG_IGN);/// to fix ending process if client quits on send()
     int rc = 0;
     struct sockaddr_in bind_addr;
     struct sockaddr_in client_sock;
