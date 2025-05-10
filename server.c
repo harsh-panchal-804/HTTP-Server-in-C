@@ -17,6 +17,7 @@
 #define CRLF  "\r\n" // carriage return line feed
 #define SP    " "
 const string_view WEB_ROOT =STRING_VIEW_FROM_LITERAL("./www/");
+const short PORT=6970;
 
 
 typedef struct {
@@ -313,7 +314,7 @@ int main(void) {
     printf("Socket created\n");
 
     (void)setsockopt(tcp_socket, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));/// reuse port
-    bind_addr.sin_port = htons(6970); /// little endian to big endian
+    bind_addr.sin_port = htons(PORT); /// little endian to big endian
     bind_addr.sin_family = AF_INET;
 
     inet_pton(AF_INET,"0.0.0.0",&bind_addr.sin_addr); /// on 0.0.0.0 or use inet_pton()
