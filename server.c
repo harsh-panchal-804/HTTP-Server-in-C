@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include "fs.h"
 #include <signal.h>
+#include <pthread.h>
 #define CRLF  "\r\n" // carriage return line feed
 #define SP    " "
 const string_view WEB_ROOT =STRING_VIEW_FROM_LITERAL("./www/");
@@ -82,6 +83,7 @@ string http_response_generate(char* buf,size_t buf_len,http_status status,size_t
     response.len+=sprintf(buf, "HTTP/1.0 %d %s" CRLF, status, http_status_to_string(status));
     // response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
     response.len+=sprintf(buf+response.len,"Access-Control-Allow-Origin: *" CRLF);
+    
     response.len += sprintf(buf+response.len,"Content-Type: %s" CRLF, content_type);
     response.len += sprintf(buf+response.len,"Content-Length: %zu" CRLF ,body_len);
     response.len += sprintf(buf+response.len,CRLF);
@@ -113,9 +115,11 @@ bool http_serve_file(int socket,string filename){
     off_t sendfile_offset=0;
     int in_fd=-1;
     
-    memset(filename_buf,0,sizeof(filename_buf));
+    // memset(filename_buf,0,sizeof(filename_buf));
     memcpy(filename_buf,WEB_ROOT.start,WEB_ROOT.len);
     memcpy(filename_buf +WEB_ROOT.len -1,filename.data,filename.len);
+    filename_buf[WEB_ROOT.len +filename.len -1]=0;
+    
     const char * mime_type=get_mime_type(filename_buf);
     fs_metadata file_metadata=fs_get_metadata(string_from_cstr(filename_buf));
     if(!file_metadata.exists){
@@ -182,7 +186,8 @@ cleanup:
     return return_value;
 }
 
-int handle_client(int client_socket) {
+void* handle_client(void * client_socket_ptr) {
+    int client_socket=(int)client_socket_ptr;
     ssize_t n = 0;
     char buf[8192];
     string hello = string_from_cstr(
@@ -204,7 +209,7 @@ int handle_client(int client_socket) {
         n = read(client_socket, buf, sizeof(buf) - 1);
         if (n < 0) {
             perror("read(client_socket)");
-            return -1;
+            return (const void *) -1;
         }
         if (n == 0) {
             printf("Connection closed gracefully\n");
@@ -217,7 +222,7 @@ int handle_client(int client_socket) {
         if (!eol) {
             fprintf(stderr, "Malformed request (no CRLF)\n");
             close(client_socket);
-            return -1;
+            return (const void *) -1;
         }
         size_t L = eol - buf;
         char line[8192];
@@ -230,7 +235,7 @@ int handle_client(int client_socket) {
             fprintf(stderr, "Invalid request line (got %zu parts)\n", comps.count);
             free_splits(&comps);
             close(client_socket);
-            return -1;
+            return (const void *) -1;
         }
 
         http_req_line req_line = http_req_line_init();
@@ -269,12 +274,12 @@ int handle_client(int client_socket) {
         else if (strings_equal(&req_line.uri, &route_index)
               || strings_equal(&req_line.uri, &route_root)) {
             if (!http_serve_file(client_socket, string_from_cstr("index.html"))) {
-                return -1;
+                return (const void *) -1;
             }
         }
         else {
             if (!http_serve_file(client_socket, req_line.uri)) {
-                return -1;
+                return (const void *) -1;
             }
             /// for react router handling serve index.html if serve file above fails
         }
@@ -283,7 +288,7 @@ int handle_client(int client_socket) {
         break;
     }
     printf("-------------------\n");
-    return 0;
+    return (const void *) 0;
 }
 
 
@@ -335,21 +340,48 @@ int main(void) {
         goto exit;
     }
     printf("listen succeeded\n");
-
+    
+    
+    pthread_t* threads;
+    size_t threads_count=0;
+    size_t threads_capacity=10;
+    threads=calloc(threads_capacity,sizeof(pthread_t));
     for (;;) {
         printf("Waiting for connections...\n");
         client_socket = accept(tcp_socket,(struct sockaddr *)&client_sock,&client_len); /// pop front from queue
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(client_sock.sin_addr), client_ip, INET_ADDRSTRLEN);
         printf("Got connection from %s:%d\n", client_ip, ntohs(client_sock.sin_port));
+        pthread_t thread;
+        //// bind thread to routine
+        rc=pthread_create(&thread,NULL,handle_client,client_socket);
+        if(rc<0){
+            perror("pthread_create()");
+            continue;
+        }
+        threads[threads_count++]=thread;
+        /// dynamically grow thread vector
+        if(threads_count+1>threads_capacity){
+            threads_capacity*=2;
+            pthread_t* new_threads=realloc(threads,threads_capacity*sizeof(pthread_t));
+            if(!new_threads){
+                perror("realloc()");
+                goto exit;
+            }
+            threads=new_threads;
+        }
+
         if (client_socket < 0) {
             perror("accept()");
             continue;
         }
-        rc = handle_client(client_socket);
+        // rc = handle_client(client_socket);
     }
 
 exit:
+    for(size_t i=0;i<threads_count;i++){
+        pthread_kill(threads[i],SIGTERM);
+    }
     close(tcp_socket);
     return ret;
 }
