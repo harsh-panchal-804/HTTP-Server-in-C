@@ -6,8 +6,20 @@ A lightweight, multithreaded HTTP server implemented in C using POSIX sockets an
 ---
 
 ## Demo
+The project is deployed on [AWS at](http://ec2-13-203-231-9.ap-south-1.compute.amazonaws.com:6970/)
+
 Watch the demo (It takes some time to load or go to the demo_video folder ) ->
 ![Demo GIF](demo_video/server.gif)
+
+## Stress Testing
+
+Stress tested via Apache Bench with n=10,000 and c=20 -> 
+
+![Stress_Test GIF](demo_video/http%20server%20stress%20test.gif)
+
+Kcachegrind call map->
+
+<img src="demo_video/kcache_http_img.png">
 
 
 ## Features
