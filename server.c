@@ -370,12 +370,25 @@ int main(void) {
             }
             threads=new_threads;
         }
+        threads[threads_count++]=thread;
+        /// dynamically grow thread vector
+        if(threads_count+1>threads_capacity){
+            threads_capacity*=2;
+            pthread_t* new_threads=realloc(threads,threads_capacity*sizeof(pthread_t));
+            if(!new_threads){
+                perror("realloc()");
+                goto exit;
+            }
+            threads=new_threads;
+        }
 
-        if (client_socket < 0) {
+        if (client_sock < 0) {
             perror("accept()");
             continue;
         }
-        // rc = handle_client(client_socket);
+
+       
+       
     }
 
 exit:
