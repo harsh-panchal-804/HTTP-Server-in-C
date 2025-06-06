@@ -83,6 +83,7 @@ string http_response_generate(char* buf,size_t buf_len,http_status status,size_t
     response.len+=sprintf(buf, "HTTP/1.0 %d %s" CRLF, status, http_status_to_string(status));
     // response.len+=sprintf(buf + response.len, "Content-Type: text/html" CRLF); /// wont see css without this
     response.len+=sprintf(buf+response.len,"Access-Control-Allow-Origin: *" CRLF);
+    response.len+=sprintf(buf+response.len,"Server: Harsh Panchal's C HTTP Server" CRLF);
     
     response.len += sprintf(buf+response.len,"Content-Type: %s" CRLF, content_type);
     response.len += sprintf(buf+response.len,"Content-Length: %zu" CRLF ,body_len);
@@ -382,7 +383,7 @@ int main(void) {
             threads=new_threads;
         }
 
-        if (client_sock < 0) {
+        if (client_socket < 0) {
             perror("accept()");
             continue;
         }
