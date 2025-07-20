@@ -360,6 +360,7 @@ int main(void) {
             perror("pthread_create()");
             continue;
         }
+        pthread_detach(thread);
         threads[threads_count++]=thread;
         /// dynamically grow thread vector
         if(threads_count+1>threads_capacity){
